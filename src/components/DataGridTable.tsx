@@ -1,9 +1,8 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
 	DataGrid,
 	GridColDef,
-	GridRowsProp,
 	GridRowSelectionModel,
 	GridRowId,
 } from "@mui/x-data-grid";
@@ -31,6 +30,24 @@ import {
 	DeleteSweep as DeleteSweepIcon,
 } from "@mui/icons-material";
 import { v4 as uuidv4 } from "uuid";
+
+// Define interfaces for better type safety
+interface TableRow {
+	id: string;
+	[key: string]: string | number | boolean | Date | null | undefined;
+}
+
+interface NewColumnState {
+	field: string;
+	headerName: string;
+	type: string;
+	valueOptions: string[];
+}
+
+interface ColumnButtonPosition {
+	left: number;
+	fallback: boolean;
+}
 
 const CELL_TYPES = [
 	{ value: "string", label: "Text" },
@@ -89,7 +106,7 @@ const PRESET_COLUMNS: GridColDef[] = [
 ];
 
 // Preset rows data
-const PRESET_ROWS: GridRowsProp = [
+const PRESET_ROWS: TableRow[] = [
 	{
 		id: "1",
 		name: "John Doe",
@@ -130,24 +147,25 @@ const PRESET_ROWS: GridRowsProp = [
 
 export default function DynamicDataGrid() {
 	const [columns, setColumns] = useState<GridColDef[]>(PRESET_COLUMNS);
-	const [rows, setRows] = useState<GridRowsProp>(PRESET_ROWS);
+	const [rows, setRows] = useState<TableRow[]>(PRESET_ROWS);
 	const [rowSelectionModel, setRowSelectionModel] =
 		useState<GridRowSelectionModel>({
 			type: "include",
 			ids: new Set<GridRowId>(),
 		});
 	const [drawerOpen, setDrawerOpen] = useState(false);
-	const [newColumn, setNewColumn] = useState({
+	const [newColumn, setNewColumn] = useState<NewColumnState>({
 		field: "",
 		headerName: "",
 		type: "string",
-		valueOptions: [] as string[],
+		valueOptions: [],
 	});
 	const [newOption, setNewOption] = useState("");
-	const [columnButtonPosition, setColumnButtonPosition] = useState({
-		left: 0,
-		fallback: false,
-	});
+	const [columnButtonPosition, setColumnButtonPosition] =
+		useState<ColumnButtonPosition>({
+			left: 0,
+			fallback: false,
+		});
 	const dataGridRef = useRef<HTMLDivElement>(null);
 
 	const generateRowId = () => {
@@ -155,7 +173,7 @@ export default function DynamicDataGrid() {
 	};
 
 	// Function to calculate button position based on last column header
-	const calculateColumnButtonPosition = () => {
+	const calculateColumnButtonPosition = useCallback(() => {
 		if (!dataGridRef.current || columns.length === 0) {
 			setColumnButtonPosition({ left: 0, fallback: true });
 			return;
@@ -193,7 +211,7 @@ export default function DynamicDataGrid() {
 				fallback: false,
 			});
 		}
-	};
+	}, [columns.length]);
 
 	// Effect to recalculate positions when columns/rows change or window resizes
 	useEffect(() => {
@@ -211,7 +229,7 @@ export default function DynamicDataGrid() {
 			clearTimeout(timeoutId);
 			window.removeEventListener("resize", handleResize);
 		};
-	}, [columns, rows]);
+	}, [columns, rows, calculateColumnButtonPosition]);
 
 	// Also recalculate when DataGrid might have been scrolled
 	useEffect(() => {
@@ -230,9 +248,9 @@ export default function DynamicDataGrid() {
 		scrollContainer.addEventListener("scroll", handleScroll);
 		return () =>
 			scrollContainer.removeEventListener("scroll", handleScroll);
-	}, [columns, rows]);
+	}, [columns, rows, calculateColumnButtonPosition]);
 
-	const handleRowUpdate = (newRow: any) => {
+	const handleRowUpdate = (newRow: TableRow) => {
 		setRows((prev) => {
 			const updatedRows = prev.map((row) =>
 				row.id === newRow.id ? { ...newRow } : row
@@ -276,7 +294,13 @@ export default function DynamicDataGrid() {
 		const column: GridColDef = {
 			field: newColumn.field,
 			headerName: newColumn.headerName,
-			type: newColumn.type as any,
+			type: newColumn.type as
+				| "string"
+				| "number"
+				| "date"
+				| "dateTime"
+				| "boolean"
+				| "singleSelect",
 			width: 150,
 			editable: true,
 		};
@@ -286,7 +310,11 @@ export default function DynamicDataGrid() {
 			newColumn.type === "singleSelect" &&
 			newColumn.valueOptions.length > 0
 		) {
-			column.valueOptions = newColumn.valueOptions;
+			// TypeScript workaround for valueOptions property
+			const selectColumn = column as GridColDef & {
+				valueOptions?: string[];
+			};
+			selectColumn.valueOptions = newColumn.valueOptions;
 		}
 
 		setColumns((prev) => [...prev, column]);
@@ -327,7 +355,7 @@ export default function DynamicDataGrid() {
 
 	const addRow = () => {
 		const newRowId = generateRowId();
-		const newRow: any = {
+		const newRow: TableRow = {
 			id: newRowId,
 		};
 
@@ -377,56 +405,28 @@ export default function DynamicDataGrid() {
 
 	return (
 		<Box sx={{ height: "100%", width: "100%", p: 2 }}>
-			<Typography variant="h4" gutterBottom>
-				Dynamic MUI DataGrid
-			</Typography>
+			<Box
+				sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}
+			>
+				<Typography variant="h4" gutterBottom>
+					Table
+				</Typography>
 
-			{/* Debug info */}
-			<Paper sx={{ p: 2, mb: 2, backgroundColor: "#f5f5f5" }}>
-				<Typography variant="subtitle2">Debug Info:</Typography>
-				<Typography variant="body2">
-					Total rows: {rows.length}
-				</Typography>
-				<Typography variant="body2">
-					Total columns: {columns.length}
-				</Typography>
-				<Typography variant="body2">
-					Selected rows: {rowSelectionModel.ids.size}
-				</Typography>
-				<Typography
-					variant="body2"
-					sx={{ fontFamily: "monospace", fontSize: "0.8em" }}
-				>
-					Rows data: {JSON.stringify(rows, null, 2)}
-				</Typography>
-			</Paper>
-
-			<Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-				<Button
-					variant="contained"
-					startIcon={<AddIcon />}
-					onClick={() => setDrawerOpen(true)}
-				>
-					Add Column
-				</Button>
-				<Button
-					variant="outlined"
-					startIcon={<AddIcon />}
-					onClick={addRow}
-					disabled={columns.length === 0}
-				>
-					Add Row
-				</Button>
-				<Button
-					variant="outlined"
-					color="error"
-					startIcon={<DeleteSweepIcon />}
-					onClick={handleDeleteSelected}
-					disabled={rowSelectionModel.ids.size === 0}
-				>
-					Delete Selected ({rowSelectionModel.ids.size})
-				</Button>
-			</Stack>
+				<Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+					<Button
+						variant="outlined"
+						color="error"
+						startIcon={<DeleteSweepIcon />}
+						onClick={handleDeleteSelected}
+						disabled={rowSelectionModel.ids.size === 0}
+						sx={{
+							opacity: rowSelectionModel.ids.size === 0 ? 0 : 1,
+						}}
+					>
+						Delete Selected ({rowSelectionModel.ids.size})
+					</Button>
+				</Stack>
+			</Box>
 
 			{columns.length === 0 ? (
 				<Paper sx={{ p: 4, textAlign: "center" }}>
@@ -438,7 +438,7 @@ export default function DynamicDataGrid() {
 						color="textSecondary"
 						sx={{ mt: 1 }}
 					>
-						Click "Add Column" to get started
+						Click &quot;Add Column&quot; to get started
 					</Typography>
 				</Paper>
 			) : (
@@ -460,7 +460,6 @@ export default function DynamicDataGrid() {
 						}}
 						// Add these props to handle the data properly
 						getRowId={(row) => row.id}
-						experimentalFeatures={{ newEditingApi: true }}
 						sx={{
 							"& .MuiDataGrid-cell": {
 								borderRight: 1,
